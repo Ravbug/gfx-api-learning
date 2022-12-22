@@ -1,7 +1,4 @@
 #include "App.hpp"
-#if VK_AVAILABLE
-#define GLFW_INCLUDE_VULKAN
-#endif
 #include <GLFW/glfw3.h>
 
 using namespace std;
