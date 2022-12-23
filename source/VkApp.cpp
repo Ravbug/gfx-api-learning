@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <format>
 #include <iostream>
+#include <optional>
 #define VK_CHECK(a) {auto VK_CHECK_RESULT = a; assert(VK_CHECK_RESULT == VK_SUCCESS);}
 #define VK_CHECK_OPT(a) {auto VK_CHECK_RESULT = a; if(VK_CHECK_RESULT != VK_SUCCESS){std::cout << std::format("VK_CHECK_OPT {}:{} failed",__FILE__,__LINE__) << std::endl;}}
 
@@ -17,7 +18,8 @@ using namespace std;
 
 // ideally these would go in some kind of ADT
 static VkInstance instance;
-VkDebugUtilsMessengerEXT debugMessenger;
+static VkDebugUtilsMessengerEXT debugMessenger;
+static VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 
 // layers we want
 static const char* const validationLayers[] = {
@@ -40,7 +42,9 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 
     VkApp* app = static_cast<VkApp*>(pUserData); // now do whatever with this
 
-    std::cout << std::format("validation layer: {}", pCallbackData->pMessage) << std::endl;
+    if (messageType >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+        std::cout << std::format("validation layer: {}", pCallbackData->pMessage) << std::endl;
+    }
 
     return VK_FALSE;
 }
@@ -76,10 +80,10 @@ void VkApp::inithook() {
         .apiVersion = VK_API_VERSION_1_0
     };
     VkInstanceCreateInfo createInfo{
-     .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-     .pApplicationInfo = &appInfo,
-     .enabledLayerCount = 0,
-     .enabledExtensionCount = 0
+        .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pApplicationInfo = &appInfo,
+        .enabledLayerCount = 0,
+        .enabledExtensionCount = 0
     };
 
     // validation layers
@@ -112,6 +116,7 @@ void VkApp::inithook() {
         extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME); // debug callback
     }
     createInfo.ppEnabledExtensionNames = extensions.data();
+    createInfo.enabledExtensionCount = extensions.size();
     // when doing own implementation, use vkEnumerateInstanceExtensionProperties
     // https://vulkan-tutorial.com/en/Drawing_a_triangle/Setup/Instance
 
@@ -122,15 +127,77 @@ void VkApp::inithook() {
     // message callback
     if constexpr (enableValidationLayers){
         VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{
-       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-       .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-       .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-       .pfnUserCallback = debugCallback,
-       .pUserData = this   // optional
+           .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+           .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+           .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+           .pfnUserCallback = debugCallback,
+           .pUserData = this   // optional
         };
-        VK_CHECK_OPT(CreateDebugUtilsMessengerEXT(instance, &debugCreateInfo, nullptr, &debugMessenger));
+        VK_CHECK(CreateDebugUtilsMessengerEXT(instance, &debugCreateInfo, nullptr, &debugMessenger));
     }
    
+    // now select and configure a device
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+    if (deviceCount == 0) {
+        throw std::runtime_error("No GPUs with Vulkan support");
+    }
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+    // find a queue of the right family
+    struct QueueFamilyIndices {
+        std::optional<uint32_t> graphicsFamily;
+        bool isComplete() {
+            return graphicsFamily.has_value();
+        }
+    };
+    constexpr auto findQueueFamilies = [](VkPhysicalDevice device) -> QueueFamilyIndices {
+        QueueFamilyIndices indices;
+        // Logic to find queue family indices to populate struct with
+
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+        int i = 0;
+        for (const auto& queueFamily : queueFamilies) {
+            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                indices.graphicsFamily = i;
+            }
+
+            i++;
+        }
+
+        return indices;
+    };
+
+    constexpr auto isDeviceSuitable = [](const VkPhysicalDevice& device) -> bool{
+        // look for all the features we want
+        VkPhysicalDeviceProperties deviceProperties;
+        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+        VkPhysicalDeviceFeatures deviceFeatures;
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+        auto queueFamilyData = findQueueFamilies(device);
+
+        // right now we don't care so pick any gpu
+        // in the future implement a scoring system to pick the best device
+        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && queueFamilyData.isComplete();
+    };
+    for (const auto& device : devices) {
+        if (isDeviceSuitable(device)) {
+            physicalDevice = device;
+            break;
+        }
+    }
+    if (physicalDevice == VK_NULL_HANDLE) {
+        throw std::runtime_error("failed to find a suitable GPU!");
+    }
+
+    
 }
 
 void VkApp::tickhook() {
