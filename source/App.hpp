@@ -21,7 +21,7 @@ struct AppBase {
 	virtual void inithook() = 0;
 	virtual void cleanuphook() = 0;
 	virtual void tickhook() = 0;
-private:
+protected:
 	GLFWwindow* window;
 };
 

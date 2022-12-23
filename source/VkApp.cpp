@@ -1,9 +1,14 @@
 #include "App.hpp"
 #include <vector>
+#include <set>
 #if VK_AVAILABLE
 
+#define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+
 #include <cassert>
 #include <stdexcept>
 #include <format>
@@ -22,6 +27,8 @@ static VkDebugUtilsMessengerEXT debugMessenger;
 static VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 static VkDevice device;
 static VkQueue graphicsQueue;
+static VkSurfaceKHR surface;
+static VkQueue presentQueue;
 
 // layers we want
 static const char* const validationLayers[] = {
@@ -137,6 +144,9 @@ void VkApp::inithook() {
         };
         VK_CHECK(CreateDebugUtilsMessengerEXT(instance, &debugCreateInfo, nullptr, &debugMessenger));
     }
+
+    // window surface
+    VK_CHECK(glfwCreateWindowSurface(instance, window, nullptr, &surface));
    
     // now select and configure a device
     uint32_t deviceCount = 0;
@@ -149,8 +159,9 @@ void VkApp::inithook() {
     // find a queue of the right family
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> presentFamily;
         bool isComplete() {
-            return graphicsFamily.has_value();
+            return graphicsFamily.has_value() && presentFamily.has_value();
         }
     };
     constexpr auto findQueueFamilies = [](VkPhysicalDevice device) -> QueueFamilyIndices {
@@ -168,9 +179,14 @@ void VkApp::inithook() {
             if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 indices.graphicsFamily = i;
             }
-
+            VkBool32 presentSupport = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+            if (presentSupport) {
+                indices.presentFamily = i;
+            }
             i++;
         }
+       
 
         return indices;
     };
@@ -208,17 +224,25 @@ void VkApp::inithook() {
     // next create the logical device and the queue
     QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
     float queuePriority = 1.0f;     // required even if we only have one queue. Used to cooperatively schedule multiple queues
-    VkDeviceQueueCreateInfo queueCreateInfo{
+
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+
+    for (uint32_t queueFamily : uniqueQueueFamilies) {
+        VkDeviceQueueCreateInfo queueCreateInfo{
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
         .queueFamilyIndex = indices.graphicsFamily.value(),
         .queueCount = 1,
         .pQueuePriorities = &queuePriority
-    };
+        };
+        queueCreateInfos.push_back(queueCreateInfo);
+    }
+    
     VkPhysicalDeviceFeatures deviceFeatures{};      // we don't yet need anything
     VkDeviceCreateInfo deviceCreateInfo{
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .queueCreateInfoCount = 1,
-        .pQueueCreateInfos = &queueCreateInfo,      // could pass an array here if we were making more than one queue
+        .queueCreateInfoCount = static_cast<decltype(VkDeviceCreateInfo::queueCreateInfoCount)>(queueCreateInfos.size()),
+        .pQueueCreateInfos = queueCreateInfos.data(),      // could pass an array here if we were making more than one queue
         .enabledExtensionCount = 0,             // device-specific extensions are ignored on later vulkan versions but we set it anyways
         .pEnabledFeatures = &deviceFeatures,
     };
@@ -228,6 +252,7 @@ void VkApp::inithook() {
     }
     VK_CHECK(vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
     vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);    // 0 because we only have 1 queue
+    vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 }
 
 void VkApp::tickhook() {
@@ -239,6 +264,7 @@ void VkApp::cleanuphook() {
         DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
     }
     vkDestroyDevice(device,nullptr);
+    vkDestroySurfaceKHR(instance,surface,nullptr);
     vkDestroyInstance(instance, nullptr);
 }
 #endif
