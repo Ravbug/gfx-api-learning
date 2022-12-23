@@ -24,6 +24,30 @@ add_subdirectory(deps/glfw EXCLUDE_FROM_ALL)
 add_subdirectory(deps/glm EXCLUDE_FROM_ALL)
 
 find_package(Vulkan)
+if (Vulkan_FOUND)
+	macro(vk_compile infile)
+		get_filename_component(name_only ${infile} NAME)
+		set(outname "${CMAKE_CURRENT_BINARY_DIR}/${name_only}.spv")
+		list(APPEND all_vk_shders "${outname}")
+		add_custom_command(
+			PRE_BUILD
+			OUTPUT "${outname}"
+			DEPENDS ${infile}
+			COMMAND Vulkan::glslc "${infile}" -o "${outname}"
+		)
+	endmacro()
+
+	file(GLOB vk_shaders "source/shaders/*.vert" "source/shaders/*.frag")
+	foreach(FILE ${vk_shaders})
+		vk_compile("${FILE}")
+	endforeach()
+
+	add_custom_target(${PROJECT_NAME}_VkShaders
+		DEPENDS ${all_vk_shders}
+	)
+	add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_VkShaders)
+	
+endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
 	glfw
@@ -34,3 +58,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 target_include_directories(${PROJECT_NAME} PRIVATE
 	${Vulkan_INCLUDE_DIRS}
 )
+
+set_property(TARGET ${RPOJECT_NAME} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
