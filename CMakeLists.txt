@@ -46,23 +46,30 @@ if (Vulkan_FOUND)
 		DEPENDS ${all_vk_shders}
 	)
 	add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_VkShaders)
-	
+	set(VK_LIBS ${Vulkan_LIBRARIES})
+	set(VK_INCLUDE ${Vulkan_INCLUDE_DIRS})
+	target_compile_definitions(${PROJECT_NAME} PRIVATE VK_AVAILABLE=1)
+else()
+	target_compile_definitions(${PROJECT_NAME} PRIVATE VK_AVAILABLE=0)
 endif()
 
 if(MSVC)
-add_subdirectory(deps/DirectX-Headers EXCLUDE_FROM_ALL)
-set(DX12_LIBRARIES "d3d12.lib" "DirectX-Headers" "DirectX-Guids" "dxgi.lib")
+	add_subdirectory(deps/DirectX-Headers EXCLUDE_FROM_ALL)
+	set(DX12_LIBRARIES "d3d12.lib" "DirectX-Headers" "DirectX-Guids" "dxgi.lib")
+	target_compile_definitions(${PROJECT_NAME} PRIVATE DX_AVAILABLE=1)
+else()
+	target_compile_definitions(${PROJECT_NAME} PRIVATE DX_AVAILABLE=0)
 endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
 	glfw
 	glm
-	${Vulkan_LIBRARIES}
+	${VK_LIBS}
 	${DX12_LIBRARIES}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-	${Vulkan_INCLUDE_DIRS}
+	${VK_INCLUDE}
 )
 
 set_property(TARGET ${RPOJECT_NAME} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

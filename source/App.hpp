@@ -5,13 +5,6 @@ struct GLFWwindow;
 static uint32_t WIDTH = 800;
 static uint32_t HEIGHT = 600;
 
-#define VK_AVAILABLE 1
-
-#if _WIN32
-#define DX12_AVAILABLE 1
-#else
-#define DX12_AVAILABLE 0
-#endif
 
 #ifdef __APPLE__
 #define MTL_AVAILABLE 1
@@ -31,6 +24,7 @@ struct AppBase {
 	void wm_init();
 	void wm_cleanup();
 	void mainloop();
+	virtual ~AppBase(){}
 
 	virtual void inithook() = 0;
 	virtual void cleanuphook() = 0;
