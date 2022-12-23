@@ -2,8 +2,22 @@
 struct GLFWwindow;
 #include <cstdint>
 
-constexpr uint32_t WIDTH = 800;
-constexpr uint32_t HEIGHT = 600;
+static uint32_t WIDTH = 800;
+static uint32_t HEIGHT = 600;
+
+#define VK_AVAILABLE 1
+
+#if _WIN32
+#define DX12_AVAILABLE 1
+#else
+#define DX12_AVAILABLE 0
+#endif
+
+#ifdef __APPLE__
+#define MTL_AVAILABLE 1
+#else
+#define MTL_AVAILABLE 0
+#endif
 
 struct AppBase {
 	void Run() {
@@ -21,6 +35,7 @@ struct AppBase {
 	virtual void inithook() = 0;
 	virtual void cleanuphook() = 0;
 	virtual void tickhook() = 0;
+	virtual const char* getBackendName() = 0;
 	GLFWwindow* window;
 };
 
@@ -28,6 +43,25 @@ struct VkApp : public AppBase {
 	void inithook() final;
 	void tickhook() final;
 	void cleanuphook() final;
+	const char* getBackendName() final {
+		return "Vulkan";
+	}
 };
 
-#define VK_AVAILABLE 1
+struct DxApp : public AppBase {
+	void inithook() final;
+	void tickhook() final;
+	void cleanuphook() final;
+	const char* getBackendName() final {
+		return "DirectX 12";
+	}
+};
+
+struct MTLApp : public AppBase {
+	void inithook() final;
+	void tickhook() final;
+	void cleanuphook() final;
+	const char* getBackendName() final {
+		return "Metal";
+	}
+};

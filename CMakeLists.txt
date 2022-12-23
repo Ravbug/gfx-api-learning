@@ -49,10 +49,16 @@ if (Vulkan_FOUND)
 	
 endif()
 
+if(MSVC)
+add_subdirectory(deps/DirectX-Headers EXCLUDE_FROM_ALL)
+set(DX12_LIBRARIES "d3d12.lib" "DirectX-Headers" "DirectX-Guids" "dxgi.lib")
+endif()
+
 target_link_libraries(${PROJECT_NAME} PRIVATE 
 	glfw
 	glm
 	${Vulkan_LIBRARIES}
+	${DX12_LIBRARIES}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE

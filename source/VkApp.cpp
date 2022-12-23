@@ -5,8 +5,6 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
 
 #include <cassert>
 #include <stdexcept>
@@ -19,16 +17,14 @@
 #include <vector>
 #include <set>
 #include <filesystem>
-#include "VkApp.h"
 
+// grrr...
 #undef min
 #undef max
 
 #define VK_CHECK(a) {auto VK_CHECK_RESULT = a; assert(VK_CHECK_RESULT == VK_SUCCESS);}
 #define VK_CHECK_OPT(a) {auto VK_CHECK_RESULT = a; if(VK_CHECK_RESULT != VK_SUCCESS){std::cout << std::format("VK_CHECK_OPT {}:{} failed",__FILE__,__LINE__) << std::endl;}}
 #define VK_VALID(a) {assert(a != VK_NULL_HANDLE);}
-
-#define ARRAYSIZE(a) (sizeof(a)/sizeof(a[0]))
 
 using namespace std;
 
@@ -81,7 +77,8 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData) {
 
-    if (messageType >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+    if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+    {
         std::cout << std::format("validation layer: {}", pCallbackData->pMessage) << std::endl;
     }
 
@@ -293,8 +290,6 @@ QueueFamilyIndices selectPhysicalAndLogicalDevice() {
             }
             i++;
         }
-
-
         return indices;
     };
 
@@ -370,7 +365,7 @@ QueueFamilyIndices selectPhysicalAndLogicalDevice() {
     vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);    // 0 because we only have 1 queue
     VK_VALID(graphicsQueue);
     vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
-    VK_VALID(presentQueue)
+    //VK_VALID(presentQueue);
 
     return indices;
 }
@@ -875,7 +870,7 @@ void drawFrame() {
         .pImageIndices = &imageIndex,
         .pResults = nullptr         // optional
     };
-    vkQueuePresentKHR(presentQueue, &presentInfo);
+    VK_CHECK(vkQueuePresentKHR(graphicsQueue, &presentInfo));
 }
 
 void VkApp::tickhook() {
