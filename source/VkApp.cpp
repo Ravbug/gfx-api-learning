@@ -26,6 +26,7 @@
 
 #define VK_CHECK(a) {auto VK_CHECK_RESULT = a; assert(VK_CHECK_RESULT == VK_SUCCESS);}
 #define VK_CHECK_OPT(a) {auto VK_CHECK_RESULT = a; if(VK_CHECK_RESULT != VK_SUCCESS){std::cout << std::format("VK_CHECK_OPT {}:{} failed",__FILE__,__LINE__) << std::endl;}}
+#define VK_VALID(a) {assert(a != VK_NULL_HANDLE);}
 
 #define ARRAYSIZE(a) (sizeof(a)/sizeof(a[0]))
 
@@ -55,6 +56,11 @@ static VkRenderPass renderPass = VK_NULL_HANDLE;
 
 static VkCommandPool commandPool;
 static VkCommandBuffer commandBuffer;
+
+//synchronization primitves
+static VkSemaphore imageAvailableSemaphore;
+static VkSemaphore renderFinishedSemaphore;
+static VkFence inFlightFence;
 
 // layers we want
 static const char* const validationLayers[] = {
@@ -362,7 +368,9 @@ QueueFamilyIndices selectPhysicalAndLogicalDevice() {
     }
     VK_CHECK(vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
     vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);    // 0 because we only have 1 queue
+    VK_VALID(graphicsQueue);
     vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
+    VK_VALID(presentQueue)
 
     return indices;
 }
@@ -508,13 +516,25 @@ void createRenderPass() {
         .pColorAttachments = &colorAttachmentRef
     };
 
+    // dependencies allow ensuring that passes execute at the right time
+    VkSubpassDependency dependency{
+        .srcSubpass = VK_SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = 0,
+        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+    };
+
     // full pass
     VkRenderPassCreateInfo renderPassInfo{
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         .attachmentCount = 1,
         .pAttachments = &colorAttachment,
         .subpassCount = 1,
-        .pSubpasses = &subpass
+        .pSubpasses = &subpass,
+        .dependencyCount = 1,
+        .pDependencies = &dependency
     };
     VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass));
 }
@@ -732,9 +752,65 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
     VkCommandBufferBeginInfo beginInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = 0,
-        .pInheritanceInfo = nullptr
+        .pInheritanceInfo = nullptr,
     };
     VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+
+    // setup the pass
+    VkClearValue clearColor = { {{0.0f, 0.0f, 0.0f, 1.0f}} };
+
+    VkRenderPassBeginInfo renderPassInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass = renderPass,
+        .framebuffer = swapChainFramebuffers[imageIndex],
+        .renderArea = {
+            .offset = {0, 0},
+            .extent = swapChainExtent
+        },
+        .clearValueCount = 1,
+        .pClearValues = &clearColor,
+    };
+
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    // drawing commands
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+    // the dynamic properties we have to set (that we declared earlier as dynamic)
+    VkViewport viewport{
+        .x = 0.0f,
+        .y = 0.0f,
+        .width = static_cast<float>(swapChainExtent.width),
+        .height = static_cast<float>(swapChainExtent.height),
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f
+    };
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+    VkRect2D scissor{
+        .offset = {0, 0},
+        .extent = swapChainExtent
+    };
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+    vkCmdEndRenderPass(commandBuffer);
+
+    VK_CHECK(vkEndCommandBuffer(commandBuffer));
+}
+
+void createSyncObjects() {
+    VkSemaphoreCreateInfo semaphoreInfo{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+    };
+    VkFenceCreateInfo fenceInfo{
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT       // create it already signaled, so that we won't block forever waiting for a render that won't happen on the first call to drawFrame
+    };
+    VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore));
+    VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore));
+    VK_CHECK(vkCreateFence(device, &fenceInfo, nullptr, &inFlightFence));
 }
 
 void VkApp::inithook() {
@@ -754,16 +830,69 @@ void VkApp::inithook() {
     // command buffers
     createCommandPool(indices);
     createCommandBuffer();
+    createSyncObjects();
+}
+
+void drawFrame() {
+    // get the next image in the swap chain to use
+    uint32_t imageIndex;
+    vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+    // wait for the previous frame
+    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+    vkResetFences(device, 1, &inFlightFence); // reset the fence
+
+    // populate the command buffer
+    vkResetCommandBuffer(commandBuffer, 0);
+    recordCommandBuffer(commandBuffer, imageIndex);
+
+    // prepare to submit the command buffer 
+    VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
+    VkSemaphore signalSemaphores[] = { renderFinishedSemaphore };
+    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    VkSubmitInfo submitInfo{
+       .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+       .waitSemaphoreCount = 1,
+       .pWaitSemaphores = waitSemaphores,
+       .pWaitDstStageMask = waitStages,
+       .commandBufferCount = 1,
+       .pCommandBuffers = &commandBuffer,
+       .signalSemaphoreCount = 1,
+       .pSignalSemaphores = signalSemaphores
+    };
+
+    // submit it to the queue!
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence));
+
+    // then present it
+    VkSwapchainKHR swapChains[] = { swapChain };
+    VkPresentInfoKHR presentInfo{
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = signalSemaphores,
+        .swapchainCount = 1,
+        .pSwapchains = swapChains,
+        .pImageIndices = &imageIndex,
+        .pResults = nullptr         // optional
+    };
+    vkQueuePresentKHR(presentQueue, &presentInfo);
 }
 
 void VkApp::tickhook() {
-   
+    drawFrame();
 }
 
 void VkApp::cleanuphook() {
+    vkDeviceWaitIdle(device);
+
     if constexpr (enableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
     }
+
+    vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+    vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
+    vkDestroyFence(device, inFlightFence, nullptr);
+
     for (auto imageView : swapChainImageViews) {
         vkDestroyImageView(device, imageView, nullptr);
     }
