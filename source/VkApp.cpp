@@ -44,6 +44,7 @@ static VkFormat swapChainImageFormat;
 static VkExtent2D swapChainExtent;
 static std::vector<VkImage> swapChainImages;
 static std::vector<VkImageView> swapChainImageViews;
+static std::vector<VkFramebuffer> swapChainFramebuffers;
 
 static VkShaderModule vertShaderModule;
 static VkShaderModule fragShaderModule;
@@ -51,6 +52,9 @@ static VkShaderModule fragShaderModule;
 static VkPipeline graphicsPipeline;
 static VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 static VkRenderPass renderPass = VK_NULL_HANDLE;
+
+static VkCommandPool commandPool;
+static VkCommandBuffer commandBuffer;
 
 // layers we want
 static const char* const validationLayers[] = {
@@ -681,6 +685,58 @@ void createGraphicsPipeline() {
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline));
 }
 
+void createFramebuffers(){
+    swapChainFramebuffers.resize(swapChainImageViews.size());
+    for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+        VkImageView attachments[] = {
+            swapChainImageViews[i]
+        };
+
+        VkFramebufferCreateInfo framebufferInfo{
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = renderPass,
+            .attachmentCount = 1,
+            .pAttachments = attachments,
+            .width = swapChainExtent.width,
+            .height = swapChainExtent.height,
+            .layers = 1
+        };
+        if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create framebuffer!");
+        }
+    }
+}
+
+void createCommandPool(const QueueFamilyIndices& queueFamilyIndices) {
+    VkCommandPoolCreateInfo poolInfo{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,       // use this value if we want to write over the command buffer (ie for generating it every frame)
+        .queueFamilyIndex = queueFamilyIndices.graphicsFamily.value()
+    };
+    VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool));
+};
+
+void createCommandBuffer() {
+    // setup creating the command buffer
+    VkCommandBufferAllocateInfo allocInfo{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = commandPool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+    VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer));
+}
+
+void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+    // start recording commands
+    VkCommandBufferBeginInfo beginInfo{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = 0,
+        .pInheritanceInfo = nullptr
+    };
+    VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+}
+
 void VkApp::inithook() {
 
     createInstance();
@@ -693,7 +749,11 @@ void VkApp::inithook() {
     // render pass
     createRenderPass();
     createGraphicsPipeline();
+    createFramebuffers();
 
+    // command buffers
+    createCommandPool(indices);
+    createCommandBuffer();
 }
 
 void VkApp::tickhook() {
@@ -707,10 +767,13 @@ void VkApp::cleanuphook() {
     for (auto imageView : swapChainImageViews) {
         vkDestroyImageView(device, imageView, nullptr);
     }
+    vkDestroyCommandPool(device, commandPool, nullptr);
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
     vkDestroyShaderModule(device, fragShaderModule, nullptr);
     vkDestroyShaderModule(device, vertShaderModule, nullptr);
-
+    for (auto framebuffer : swapChainFramebuffers) {
+        vkDestroyFramebuffer(device, framebuffer, nullptr);
+    }
     vkDestroyPipeline(device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
     vkDestroyRenderPass(device, renderPass, nullptr);
