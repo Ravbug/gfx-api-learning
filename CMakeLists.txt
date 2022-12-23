@@ -10,7 +10,7 @@ endif()
 
 project(apilearning)
 
-file(GLOB SOURCES "source/*.cpp" "source/*.hpp" "source/*.h")
+file(GLOB SOURCES "source/*.cpp" "source/*.hpp" "source/*.h" "source/*.mm")
 add_executable(${PROJECT_NAME} ${SOURCES})
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "${PROJECT_NAME}")
@@ -22,6 +22,10 @@ set(GLFW_INSTALL OFF)
 add_subdirectory(deps/glfw EXCLUDE_FROM_ALL)
 
 add_subdirectory(deps/glm EXCLUDE_FROM_ALL)
+
+if(APPLE)
+add_definitions("-x objective-c++")
+endif()
 
 find_package(Vulkan)
 if (Vulkan_FOUND)
@@ -61,15 +65,34 @@ else()
 	target_compile_definitions(${PROJECT_NAME} PRIVATE DX_AVAILABLE=0)
 endif()
 
+if(APPLE)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE MTL_AVAILABLE=1)
+	set(MTL_INCLUDE "${CMAKE_CURRENT_LIST_DIR}/deps/metal-cpp")
+	find_library(FOUNDATION_LIB Cocoa REQUIRED)
+    find_library(METAL_LIB Metal REQUIRED)
+    find_library(QZC_LIB QuartzCore REQUIRED)
+    target_sources(${PROJECT_NAME} PRIVATE source/shaders/metal.metal)
+else()
+	target_compile_definitions(${PROJECT_NAME} PRIVATE MTL_AVAILABLE=0)
+endif()
+
 target_link_libraries(${PROJECT_NAME} PRIVATE 
 	glfw
 	glm
 	${VK_LIBS}
 	${DX12_LIBRARIES}
+	${FOUNDATION_LIB}
+	${METAL_LIB}
+	${QZC_LIB}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
 	${VK_INCLUDE}
+	${MTL_INCLUDE}
 )
 
-set_property(TARGET ${RPOJECT_NAME} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_target_properties(${PROJECT_NAME} PROPERTIES
+	MACOSX_BUNDLE TRUE
+	RESOURCE "metal.metal"
+	VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)

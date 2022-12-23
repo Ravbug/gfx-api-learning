@@ -5,13 +5,6 @@ struct GLFWwindow;
 static uint32_t WIDTH = 800;
 static uint32_t HEIGHT = 600;
 
-
-#ifdef __APPLE__
-#define MTL_AVAILABLE 1
-#else
-#define MTL_AVAILABLE 0
-#endif
-
 struct AppBase {
 	void Run() {
 		wm_init();
