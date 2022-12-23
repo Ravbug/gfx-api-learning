@@ -20,6 +20,8 @@ using namespace std;
 static VkInstance instance;
 static VkDebugUtilsMessengerEXT debugMessenger;
 static VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+static VkDevice device;
+static VkQueue graphicsQueue;
 
 // layers we want
 static const char* const validationLayers[] = {
@@ -79,7 +81,7 @@ void VkApp::inithook() {
         .engineVersion = VK_MAKE_VERSION(1, 0, 0),
         .apiVersion = VK_API_VERSION_1_0
     };
-    VkInstanceCreateInfo createInfo{
+    VkInstanceCreateInfo instanceCreateInfo{
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pApplicationInfo = &appInfo,
         .enabledLayerCount = 0,
@@ -103,26 +105,26 @@ void VkApp::inithook() {
                 throw std::runtime_error(std::format("required validation layer {} not found", layerName));
             }
         }
-        createInfo.enabledLayerCount = ARRAYSIZE(validationLayers);
-        createInfo.ppEnabledLayerNames = validationLayers;
+        instanceCreateInfo.enabledLayerCount = ARRAYSIZE(validationLayers);
+        instanceCreateInfo.ppEnabledLayerNames = validationLayers;
     }
 
     // load GLFW's specific extensions for Vulkan
     const char** glfwExtensions;
-    glfwExtensions = glfwGetRequiredInstanceExtensions(&createInfo.enabledExtensionCount);
-    std::vector<const char*> extensions(glfwExtensions, glfwExtensions + createInfo.enabledExtensionCount);
+    glfwExtensions = glfwGetRequiredInstanceExtensions(&instanceCreateInfo.enabledExtensionCount);
+    std::vector<const char*> extensions(glfwExtensions, glfwExtensions + instanceCreateInfo.enabledExtensionCount);
     if constexpr (enableValidationLayers) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME); // debug callback
     }
-    createInfo.ppEnabledExtensionNames = extensions.data();
-    createInfo.enabledExtensionCount = extensions.size();
+    instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
+    instanceCreateInfo.enabledExtensionCount = extensions.size();
     // when doing own implementation, use vkEnumerateInstanceExtensionProperties
     // https://vulkan-tutorial.com/en/Drawing_a_triangle/Setup/Instance
 
 
     // init vulkan
-    VK_CHECK(vkCreateInstance(&createInfo, nullptr, &instance));
+    VK_CHECK(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
 
     // message callback
     if constexpr (enableValidationLayers){
@@ -196,8 +198,36 @@ void VkApp::inithook() {
     if (physicalDevice == VK_NULL_HANDLE) {
         throw std::runtime_error("failed to find a suitable GPU!");
     }
-
-    
+    {
+        // print what gpu we are using
+        VkPhysicalDeviceProperties props;;
+        vkGetPhysicalDeviceProperties(physicalDevice, &props);
+        std::cout << std::format("GPU: {}\nDriver {}",props.deviceName, props.driverVersion) << std::endl;
+    }
+   
+    // next create the logical device and the queue
+    QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+    float queuePriority = 1.0f;     // required even if we only have one queue. Used to cooperatively schedule multiple queues
+    VkDeviceQueueCreateInfo queueCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = indices.graphicsFamily.value(),
+        .queueCount = 1,
+        .pQueuePriorities = &queuePriority
+    };
+    VkPhysicalDeviceFeatures deviceFeatures{};      // we don't yet need anything
+    VkDeviceCreateInfo deviceCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .queueCreateInfoCount = 1,
+        .pQueueCreateInfos = &queueCreateInfo,      // could pass an array here if we were making more than one queue
+        .enabledExtensionCount = 0,             // device-specific extensions are ignored on later vulkan versions but we set it anyways
+        .pEnabledFeatures = &deviceFeatures,
+    };
+    if constexpr (enableValidationLayers) {
+        deviceCreateInfo.enabledLayerCount = ARRAYSIZE(validationLayers);
+        deviceCreateInfo.ppEnabledLayerNames = validationLayers;
+    }
+    VK_CHECK(vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
+    vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);    // 0 because we only have 1 queue
 }
 
 void VkApp::tickhook() {
@@ -208,7 +238,7 @@ void VkApp::cleanuphook() {
     if constexpr (enableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
     }
-
+    vkDestroyDevice(device,nullptr);
     vkDestroyInstance(instance, nullptr);
 }
 #endif
