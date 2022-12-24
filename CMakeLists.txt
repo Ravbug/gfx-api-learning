@@ -10,7 +10,7 @@ endif()
 
 project(apilearning)
 
-file(GLOB SOURCES "source/*.cpp" "source/*.hpp" "source/*.h" "source/*.mm")
+file(GLOB_RECURSE SOURCES "source/*.cpp" "source/*.hpp" "source/*.h" "source/*.mm")
 add_executable(${PROJECT_NAME} ${SOURCES})
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "${PROJECT_NAME}")

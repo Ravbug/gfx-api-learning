@@ -19,6 +19,9 @@ typedef uint32_t CGDirectDisplayID;
 #include <GLFW/glfw3native.h>
 
 #include <iostream>
+#include <cassert>
+
+#include "shaders/shader_defs.h"
 
 using namespace std;
 
@@ -26,23 +29,42 @@ NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
 MTL::Device* device = nullptr;
 MTL::CommandQueue* commandQueue = nullptr;
 MTL::RenderPassDescriptor* rpd = nullptr;
-
+MTL::Library* library = nullptr;
+MTL::RenderPipelineState* pipelineState = nullptr;
+MTL::Buffer* vertbuf = nullptr;
 
 CA::MetalLayer* renderLayer;
+
+#define MTL_CHECK(a) {NS::Error* err = nullptr; a; if(err != nullptr){ std::cerr << err->description()->cString(NS::StringEncoding::UTF8StringEncoding) << std::endl; assert(false);}}
 
 void MTLApp::inithook(){
 	device = MTL::CreateSystemDefaultDevice();
 	cout << device->name()->cString(NS::StringEncoding::UTF8StringEncoding) << endl;
+	library = device->newDefaultLibrary();
 
 	renderLayer = static_cast<CA::MetalLayer*>(createMetalLayerInWindow(glfwGetCocoaWindow(window),device));
+	
+	auto pipelineDesc = MTL::RenderPipelineDescriptor::alloc()->init();
+	pipelineDesc->setVertexFunction(library->newFunction(NS::String::alloc()->init("vertexShader", NS::StringEncoding::UTF8StringEncoding)));
+	pipelineDesc->setFragmentFunction(library->newFunction(NS::String::alloc()->init("fragmentShader", NS::StringEncoding::UTF8StringEncoding)));
+	pipelineDesc->colorAttachments()->object(0)->setPixelFormat(MTL::PixelFormat::PixelFormatBGRA8Unorm);
+	
+	MTL_CHECK(pipelineState = device->newRenderPipelineState(pipelineDesc, &err));
+	
+	static constexpr Vertex verts[] = {
+		{.color = {1,0,0,1}, .pos = {-1,-1}},
+		{.color = {0,1,0,1}, .pos = {0,1}},
+		{.color = {0,0,1,1}, .pos = {1,-1}}
+	};	
+	MTL_CHECK(vertbuf = device->newBuffer(&verts, sizeof(verts), MTL::ResourceOptions{}));
 	
 	commandQueue = device->newCommandQueue();
 	rpd = MTL::RenderPassDescriptor::alloc()->init();
 	
 	auto firstAttachment = rpd->colorAttachments()->object(0);
-	firstAttachment->setLoadAction(MTL::LoadAction::LoadActionLoad);
+	firstAttachment->setLoadAction(MTL::LoadAction::LoadActionClear);
 	firstAttachment->setStoreAction(MTL::StoreAction::StoreActionStore);
-	firstAttachment->setClearColor(MTL::ClearColor::Make(0.4f, 0.6f, 0.9f, 1.0f));
+	firstAttachment->setClearColor(MTL::ClearColor(0.4f, 0.6f, 0.9f, 1.0f));
 	rpd->setRenderTargetWidth(WIDTH);
 	rpd->setRenderTargetHeight(HEIGHT);
 	rpd->setDefaultRasterSampleCount(1);
@@ -51,6 +73,8 @@ void MTLApp::inithook(){
 void MTLApp::tickhook(){
 	// wait and get the next drawable
 	auto nextDrawable = static_cast<CA::MetalDrawable*>(CAMetalLayerNextDrawable(renderLayer));
+	
+	// if nextDrawable is null, skip rendering
 	if (!nextDrawable){
 		return;
 	}
@@ -59,20 +83,22 @@ void MTLApp::tickhook(){
 	
 	auto commandBuffer = commandQueue->commandBuffer();
 	auto encoder = commandBuffer->renderCommandEncoder(rpd);
-	commandBuffer->addScheduledHandler(MTL::HandlerFunction{[](auto x){
-		
-	}});
+	encoder->setRenderPipelineState(pipelineState);
+	encoder->setVertexBuffer(vertbuf, 0, 0);
+	encoder->drawPrimitives(MTL::PrimitiveType::PrimitiveTypeTriangle, 0, 3, 1);
+	
 	encoder->endEncoding();
-
 		
 	commandBuffer->presentDrawable(nextDrawable);
 	commandBuffer->commit();
 	commandBuffer->waitUntilCompleted();
-	// if nextDrawable is null, skip rendering
 }
 
 void MTLApp::cleanuphook(){
 	rpd->release();
+	vertbuf->release();
+	pipelineState->release();
+	library->release();
 	commandQueue->release();
 	device->release();
 	pool->release();
