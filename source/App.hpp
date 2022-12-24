@@ -22,6 +22,7 @@ struct AppBase {
 	virtual void inithook() = 0;
 	virtual void cleanuphook() = 0;
 	virtual void tickhook() = 0;
+	virtual void onresize(int newWidth, int newHeight) {}
 	virtual const char* getBackendName() = 0;
 	GLFWwindow* window;
 };
@@ -39,6 +40,7 @@ struct DxApp : public AppBase {
 	void inithook() final;
 	void tickhook() final;
 	void cleanuphook() final;
+	void onresize(int, int) final;
 	const char* getBackendName() final {
 		return "DirectX 12";
 	}

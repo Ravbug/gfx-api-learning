@@ -505,6 +505,10 @@ void DxApp::inithook()
     g_IsInitialized = true;
 }
 
+void DxApp::onresize(int width, int height) {
+    Resize(width, height);
+}
+
 void DxApp::tickhook()
 {
     Update();
