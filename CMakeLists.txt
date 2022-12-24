@@ -59,8 +59,11 @@ endif()
 
 if(MSVC)
 	add_subdirectory(deps/DirectX-Headers EXCLUDE_FROM_ALL)
-	set(DX12_LIBRARIES "d3d12.lib" "DirectX-Headers" "DirectX-Guids" "dxgi.lib")
+	set(DX12_LIBRARIES "d3d12.lib" "DirectX-Headers" "DirectX-Guids" "dxgi.lib" "d3dcompiler.lib")
 	target_compile_definitions(${PROJECT_NAME} PRIVATE DX12_AVAILABLE=1)
+	target_sources(${PROJECT_NAME} PRIVATE source/shaders/dx_vs.hlsl source/shaders/dx_fs.hlsl)
+	set_source_files_properties(source/shaders/dx_vs.hlsl PROPERTIES VS_SHADER_MODEL "5.1" VS_SHADER_TYPE "Vertex")
+	set_source_files_properties(source/shaders/dx_fs.hlsl PROPERTIES VS_SHADER_MODEL "5.1" VS_SHADER_TYPE "Pixel")
 else()
 	target_compile_definitions(${PROJECT_NAME} PRIVATE DX12_AVAILABLE=0)
 endif()
@@ -94,5 +97,5 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 set_target_properties(${PROJECT_NAME} PROPERTIES
 	MACOSX_BUNDLE TRUE
 	RESOURCE "metal.metal"
-	VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+	VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIGURATION>"
 )
