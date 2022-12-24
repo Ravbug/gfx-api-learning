@@ -1,3 +1,4 @@
+#if DX12_AVAILABLE
 #include "D3D12CommandQueue.hpp"
 #include "D3D12Common.hpp"
 
@@ -129,3 +130,4 @@ void CommandQueue::Flush()
 {
     WaitForFenceValue(Signal());
 }
+#endif

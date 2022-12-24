@@ -5,6 +5,8 @@ using namespace std;
 
 void window_size_callback(GLFWwindow* window, int width, int height) {
 	auto app = static_cast<AppBase*>(glfwGetWindowUserPointer(window));
+	WIDTH = width;
+	HEIGHT = height;
 	app->onresize(width, height);
 }
 

@@ -25,19 +25,22 @@ typedef uint32_t CGDirectDisplayID;
 
 using namespace std;
 
-NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
 MTL::Device* device = nullptr;
 MTL::CommandQueue* commandQueue = nullptr;
 MTL::RenderPassDescriptor* rpd = nullptr;
 MTL::Library* library = nullptr;
 MTL::RenderPipelineState* pipelineState = nullptr;
 MTL::Buffer* vertbuf = nullptr;
+MTL::Buffer* uniformBuf = nullptr;
+
+static UniformBuffer uniformData{.time = 0};
 
 CA::MetalLayer* renderLayer;
 
 #define MTL_CHECK(a) {NS::Error* err = nullptr; a; if(err != nullptr){ std::cerr << err->description()->cString(NS::StringEncoding::UTF8StringEncoding) << std::endl; assert(false);}}
 
 void MTLApp::inithook(){
+	
 	device = MTL::CreateSystemDefaultDevice();
 	cout << device->name()->cString(NS::StringEncoding::UTF8StringEncoding) << endl;
 	library = device->newDefaultLibrary();
@@ -58,6 +61,8 @@ void MTLApp::inithook(){
 	};	
 	MTL_CHECK(vertbuf = device->newBuffer(&verts, sizeof(verts), MTL::ResourceOptions{}));
 	
+	MTL_CHECK(uniformBuf = device->newBuffer(&uniformData, sizeof(UniformBuffer), MTL::ResourceOptions{}));
+	
 	commandQueue = device->newCommandQueue();
 	rpd = MTL::RenderPassDescriptor::alloc()->init();
 	
@@ -65,8 +70,6 @@ void MTLApp::inithook(){
 	firstAttachment->setLoadAction(MTL::LoadAction::LoadActionClear);
 	firstAttachment->setStoreAction(MTL::StoreAction::StoreActionStore);
 	firstAttachment->setClearColor(MTL::ClearColor(0.4f, 0.6f, 0.9f, 1.0f));
-	rpd->setRenderTargetWidth(WIDTH);
-	rpd->setRenderTargetHeight(HEIGHT);
 	rpd->setDefaultRasterSampleCount(1);
 }
 
@@ -78,13 +81,18 @@ void MTLApp::tickhook(){
 	if (!nextDrawable){
 		return;
 	}
+	uniformData.time++;
+	std::memcpy(uniformBuf->contents(), &uniformData, sizeof(UniformBuffer));
 	
 	rpd->colorAttachments()->object(0)->setTexture(nextDrawable->texture());
+	rpd->setRenderTargetWidth(WIDTH);
+	rpd->setRenderTargetHeight(HEIGHT);
 	
 	auto commandBuffer = commandQueue->commandBuffer();
 	auto encoder = commandBuffer->renderCommandEncoder(rpd);
 	encoder->setRenderPipelineState(pipelineState);
 	encoder->setVertexBuffer(vertbuf, 0, 0);
+	encoder->setVertexBuffer(uniformBuf, 0, 1);
 	encoder->drawPrimitives(MTL::PrimitiveType::PrimitiveTypeTriangle, 0, 3, 1);
 	
 	encoder->endEncoding();
@@ -92,6 +100,8 @@ void MTLApp::tickhook(){
 	commandBuffer->presentDrawable(nextDrawable);
 	commandBuffer->commit();
 	commandBuffer->waitUntilCompleted();
+	encoder->release();
+	commandBuffer->release();
 }
 
 void MTLApp::cleanuphook(){
@@ -101,6 +111,5 @@ void MTLApp::cleanuphook(){
 	library->release();
 	commandQueue->release();
 	device->release();
-	pool->release();
 }
 #endif

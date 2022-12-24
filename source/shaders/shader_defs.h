@@ -1,7 +1,12 @@
 #pragma once
 
+#include <simd/simd.h>
 
 struct Vertex{
-	float color[4];
-	float pos[2];
+	simd_float4 color;
+	simd_float2 pos;
+};
+
+struct UniformBuffer{
+	float time;
 };

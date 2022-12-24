@@ -1,3 +1,4 @@
+#if DX12_AVAILABLE
 #include "D3D12Common.hpp"
 #include <directx/d3dx12.h>	
 
@@ -56,3 +57,4 @@ void UpdateBufferResource(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> com
         UpdateSubresources(commandList.Get(), *pDestinationResource, *pIntermediateResource, 0, 0, 1, &subresourceData);
     }
 }
+#endif

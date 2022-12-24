@@ -70,7 +70,7 @@ endif()
 
 if(APPLE)
 	target_compile_definitions(${PROJECT_NAME} PRIVATE MTL_AVAILABLE=1)
-	set(MTL_INCLUDE "${CMAKE_CURRENT_LIST_DIR}/deps/metal-cpp")
+	set(MTL_INCLUDE "${CMAKE_CURRENT_LIST_DIR}/deps/metal-cpp" "${CMAKE_CURRENT_LIST_DIR}/deps/metal-cpp-extensions")
 	find_library(FOUNDATION_LIB Cocoa REQUIRED)
     find_library(METAL_LIB Metal REQUIRED)
     find_library(QZC_LIB QuartzCore REQUIRED)

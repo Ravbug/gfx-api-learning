@@ -1,5 +1,5 @@
 #pragma once
-
+#if DX12_AVAILABLE
 #include <cassert>
 #define DX_CHECK(hr) (assert(!FAILED(hr)))
 
@@ -26,3 +26,4 @@ void UpdateBufferResource(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> com
 
 // Resize the depth buffer to match the size of the client area.
 void ResizeDepthBuffer(int width, int height);
+#endif

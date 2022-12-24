@@ -3,6 +3,7 @@
  */
 
 #pragma once
+#if DX12_AVAILABLE
 
 #include <d3d12.h>  // For ID3D12CommandQueue, ID3D12Device2, and ID3D12Fence
 #include <wrl.h>    // For Microsoft::WRL::ComPtr
@@ -58,3 +59,4 @@ private:
     CommandAllocatorQueue                       m_CommandAllocatorQueue;
     CommandListQueue                            m_CommandListQueue;
 };
+#endif
