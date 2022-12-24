@@ -25,9 +25,8 @@ using namespace std;
 NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
 MTL::Device* device = nullptr;
 MTL::CommandQueue* commandQueue = nullptr;
-MTL::CommandBuffer* commandBuffer = nullptr;
 MTL::RenderPassDescriptor* rpd = nullptr;
-MTL::CommandEncoder* encoder = nullptr;
+
 
 CA::MetalLayer* renderLayer;
 
@@ -38,7 +37,6 @@ void MTLApp::inithook(){
 	renderLayer = static_cast<CA::MetalLayer*>(createMetalLayerInWindow(glfwGetCocoaWindow(window),device));
 	
 	commandQueue = device->newCommandQueue();
-	commandBuffer = commandQueue->commandBuffer();
 	rpd = MTL::RenderPassDescriptor::alloc()->init();
 	
 	auto firstAttachment = rpd->colorAttachments()->object(0);
@@ -48,21 +46,28 @@ void MTLApp::inithook(){
 	rpd->setRenderTargetWidth(WIDTH);
 	rpd->setRenderTargetHeight(HEIGHT);
 	rpd->setDefaultRasterSampleCount(1);
-	
-	encoder = commandBuffer->renderCommandEncoder(rpd);
-	encoder->endEncoding();
-
 }
 
 void MTLApp::tickhook(){
 	// wait and get the next drawable
 	auto nextDrawable = static_cast<CA::MetalDrawable*>(CAMetalLayerNextDrawable(renderLayer));
-	if (nextDrawable){
-		rpd->colorAttachments()->object(0)->setTexture(nextDrawable->texture());
-		commandBuffer->presentDrawable(nextDrawable);
-		commandBuffer->commit();
-		commandBuffer->waitUntilCompleted();
+	if (!nextDrawable){
+		return;
 	}
+	
+	rpd->colorAttachments()->object(0)->setTexture(nextDrawable->texture());
+	
+	auto commandBuffer = commandQueue->commandBuffer();
+	auto encoder = commandBuffer->renderCommandEncoder(rpd);
+	commandBuffer->addScheduledHandler(MTL::HandlerFunction{[](auto x){
+		
+	}});
+	encoder->endEncoding();
+
+		
+	commandBuffer->presentDrawable(nextDrawable);
+	commandBuffer->commit();
+	commandBuffer->waitUntilCompleted();
 	// if nextDrawable is null, skip rendering
 }
 
