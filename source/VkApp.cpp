@@ -488,6 +488,19 @@ void createSwapChainImageViews()
     }
 }
 
+void cleanupSwapChain() {
+    for (size_t i = 0; i < swapChainFramebuffers.size(); i++) {
+        vkDestroyFramebuffer(device, swapChainFramebuffers[i], nullptr);
+    }
+
+    for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+        vkDestroyImageView(device, swapChainImageViews[i], nullptr);
+    }
+
+    vkDestroySwapchainKHR(device, swapChain, nullptr);
+}
+
+
 void createRenderPass() {
     VkAttachmentDescription colorAttachment{
         .format = swapChainImageFormat,
@@ -808,14 +821,28 @@ void createSyncObjects() {
     VK_CHECK(vkCreateFence(device, &fenceInfo, nullptr, &inFlightFence));
 }
 
-void VkApp::inithook() {
+void recreateSwapChain(VkApp* app, const QueueFamilyIndices& indices) {
+    vkDeviceWaitIdle(device);
 
+    cleanupSwapChain();
+
+    setupSwapChain(app, indices);
+    createSwapChainImageViews();
+    createFramebuffers();
+}
+
+static QueueFamilyIndices global_indices;
+static VkApp* global_app = nullptr;;
+
+void VkApp::inithook() {
+    global_app = this;
     createInstance();
     setupDebugMessenger();
     createSurface(this);
     auto indices = selectPhysicalAndLogicalDevice();
     setupSwapChain(this,indices);
     createSwapChainImageViews();
+    global_indices = indices;
 
     // render pass
     createRenderPass();
@@ -831,11 +858,22 @@ void VkApp::inithook() {
 void drawFrame() {
     // get the next image in the swap chain to use
     uint32_t imageIndex;
-    vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    auto result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
     // wait for the previous frame
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-    vkResetFences(device, 1, &inFlightFence); // reset the fence
+
+    // if the image is out of date, then we recreate the chains
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreateSwapChain(global_app,global_indices);
+        return;
+    }
+    else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        throw runtime_error("failed to acquire next swapchain image");
+    }
+
+    // reset the fence, we are now submitting work
+    vkResetFences(device, 1, &inFlightFence); 
 
     // populate the command buffer
     vkResetCommandBuffer(commandBuffer, 0);
@@ -870,7 +908,13 @@ void drawFrame() {
         .pImageIndices = &imageIndex,
         .pResults = nullptr         // optional
     };
-    VK_CHECK(vkQueuePresentKHR(presentQueue, &presentInfo));
+    result = vkQueuePresentKHR(presentQueue, &presentInfo);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+        recreateSwapChain(global_app, global_indices);
+    }
+    else if (result != VK_SUCCESS) {
+        throw std::runtime_error("failed to present swap chain image!");
+    }
 }
 
 void VkApp::tickhook() {
@@ -879,6 +923,8 @@ void VkApp::tickhook() {
 
 void VkApp::cleanuphook() {
     vkDeviceWaitIdle(device);
+
+    cleanupSwapChain();
 
     if constexpr (enableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
