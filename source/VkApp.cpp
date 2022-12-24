@@ -17,6 +17,9 @@
 #include <vector>
 #include <set>
 #include <filesystem>
+#include <array>
+
+#include <glm/glm.hpp>
 
 // grrr...
 #undef min
@@ -27,6 +30,44 @@
 #define VK_VALID(a) {assert(a != VK_NULL_HANDLE);}
 
 using namespace std;
+
+struct Vertex {
+    glm::vec2 pos;
+    glm::vec3 color;
+
+    static VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription bindingDescription{
+            .binding = 0,           
+            .stride = sizeof(Vertex),
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX    // how to traverse the data. for vertex inputs, use Vertex. for Instance buffers, use Instance
+        };
+
+        return bindingDescription;
+    }
+
+    static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        // look at the shader to see where these come from. they match the layout Inputs
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+        attributeDescriptions[0].binding = 0;
+        attributeDescriptions[0].location = 0;
+        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+        attributeDescriptions[1].binding = 0;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+        return attributeDescriptions;
+    }
+
+};
+
+static constexpr Vertex vertices[] = {
+    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+};
 
 // ideally these would go in some kind of ADT
 static VkInstance instance;
@@ -52,6 +93,10 @@ static VkRenderPass renderPass = VK_NULL_HANDLE;
 
 static VkCommandPool commandPool;
 static VkCommandBuffer commandBuffer;
+
+// meshdata
+static VkBuffer vertexBuffer;
+static VkDeviceMemory vertexBufferMemory;
 
 //synchronization primitves
 static VkSemaphore imageAvailableSemaphore;
@@ -593,13 +638,16 @@ void createGraphicsPipeline() {
         .pDynamicStates = dynamicStates.data()
     };
 
+    auto bindingDescription = Vertex::getBindingDescription();
+    auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
     // vertex format
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 0,
-        .pVertexBindingDescriptions = nullptr,      // optional
-        .vertexAttributeDescriptionCount = 0,
-        .pVertexAttributeDescriptions = nullptr,    // optional
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &bindingDescription,      // optional
+        .vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size()),
+        .pVertexAttributeDescriptions = attributeDescriptions.data(),    // optional
     };
 
     // trilist, tristrip, etc
@@ -744,6 +792,55 @@ void createCommandPool(const QueueFamilyIndices& queueFamilyIndices) {
     VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool));
 };
 
+uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+    // find a memory type suitable for the buffer
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        // needs to have the right support
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("failed to find suitable memory type!");
+}
+
+void createVertexBuffer() {
+    VkBufferCreateInfo bufferInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = sizeof(vertices),
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,  // could have multiple here if the buffer was used in multiple different stages
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,    // only the Graphics queue is using this
+    };
+    VK_CHECK(vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer));
+
+    // the buffer doesn't have any memory assigned yet, so now we assign some
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+
+    // prepare to allocate the memory
+    VkMemoryAllocateInfo allocInfo{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = memRequirements.size,
+        // note that the data might not be on the GPU if we don't use VK_MEMORY_PROPERTY_HOST_COHERENT_BIT. This bit may decrease performance but not in a meaningful way.
+        .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+    };
+    // allocate it
+    VK_CHECK(vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory));
+
+    // associate it with the buffer
+    vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+    // fill the buffer with data
+    void* data;
+    vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+    memcpy(data, vertices, (size_t)bufferInfo.size);
+    vkUnmapMemory(device, vertexBufferMemory);
+
+}
+
 void createCommandBuffer() {
     // setup creating the command buffer
     VkCommandBufferAllocateInfo allocInfo{
@@ -784,6 +881,11 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
     // drawing commands
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
+    // associate vertex data
+    VkBuffer vertexBuffers[] = { vertexBuffer };
+    VkDeviceSize offsets[] = { 0 };
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
     // the dynamic properties we have to set (that we declared earlier as dynamic)
     VkViewport viewport{
         .x = 0.0f,
@@ -801,7 +903,7 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
     };
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdDraw(commandBuffer, ARRAYSIZE(vertices), 1, 0, 0);
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -822,6 +924,14 @@ void createSyncObjects() {
 }
 
 void recreateSwapChain(VkApp* app, const QueueFamilyIndices& indices) {
+    // resize protection - spin until a nonzero size is provided
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(app->window, &width, &height);
+    while (width == 0 || height == 0) {
+        glfwGetFramebufferSize(app->window, &width, &height);
+        glfwWaitEvents();
+    }
+
     vkDeviceWaitIdle(device);
 
     cleanupSwapChain();
@@ -851,6 +961,7 @@ void VkApp::inithook() {
 
     // command buffers
     createCommandPool(indices);
+    createVertexBuffer();
     createCommandBuffer();
     createSyncObjects();
 }
@@ -925,6 +1036,9 @@ void VkApp::cleanuphook() {
     vkDeviceWaitIdle(device);
 
     cleanupSwapChain();
+
+    vkDestroyBuffer(device, vertexBuffer, nullptr);
+    vkFreeMemory(device, vertexBufferMemory, nullptr);
 
     if constexpr (enableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
