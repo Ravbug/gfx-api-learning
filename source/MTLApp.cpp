@@ -57,14 +57,17 @@ void MTLApp::inithook(){
 void MTLApp::tickhook(){
 	// wait and get the next drawable
 	auto nextDrawable = static_cast<CA::MetalDrawable*>(CAMetalLayerNextDrawable(renderLayer));
-
-	commandBuffer->presentDrawable(nextDrawable);
-	commandBuffer->commit();
+	if (nextDrawable){
+		rpd->colorAttachments()->object(0)->setTexture(nextDrawable->texture());
+		commandBuffer->presentDrawable(nextDrawable);
+		commandBuffer->commit();
+		commandBuffer->waitUntilCompleted();
+	}
+	// if nextDrawable is null, skip rendering
 }
 
 void MTLApp::cleanuphook(){
 	rpd->release();
-	commandBuffer->release();
 	commandQueue->release();
 	device->release();
 	pool->release();
