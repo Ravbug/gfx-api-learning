@@ -342,7 +342,7 @@ QueueFamilyIndices selectPhysicalAndLogicalDevice() {
     for (uint32_t queueFamily : uniqueQueueFamilies) {
         VkDeviceQueueCreateInfo queueCreateInfo{
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .queueFamilyIndex = indices.graphicsFamily.value(),
+        .queueFamilyIndex = queueFamily,
         .queueCount = 1,
         .pQueuePriorities = &queuePriority
         };
@@ -365,7 +365,7 @@ QueueFamilyIndices selectPhysicalAndLogicalDevice() {
     vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);    // 0 because we only have 1 queue
     VK_VALID(graphicsQueue);
     vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
-    //VK_VALID(presentQueue);
+    VK_VALID(presentQueue);
 
     return indices;
 }
@@ -870,7 +870,7 @@ void drawFrame() {
         .pImageIndices = &imageIndex,
         .pResults = nullptr         // optional
     };
-    VK_CHECK(vkQueuePresentKHR(graphicsQueue, &presentInfo));
+    VK_CHECK(vkQueuePresentKHR(presentQueue, &presentInfo));
 }
 
 void VkApp::tickhook() {
