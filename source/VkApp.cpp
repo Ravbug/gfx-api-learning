@@ -69,6 +69,10 @@ static constexpr Vertex vertices[] = {
     {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
 };
 
+static struct UniformBufferObject {
+    float time = 0;
+} ubo;
+
 // ideally these would go in some kind of ADT
 static VkInstance instance;
 static VkDebugUtilsMessengerEXT debugMessenger;
@@ -88,6 +92,7 @@ static VkShaderModule vertShaderModule;
 static VkShaderModule fragShaderModule;
 
 static VkPipeline graphicsPipeline;
+static VkDescriptorSetLayout descriptorSetLayout;
 static VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 static VkRenderPass renderPass = VK_NULL_HANDLE;
 
@@ -98,10 +103,18 @@ static VkCommandBuffer commandBuffer;
 static VkBuffer vertexBuffer;
 static VkDeviceMemory vertexBufferMemory;
 
+// uniform buffer
+static VkBuffer uniformBuffer;
+static VkDeviceMemory uniformBufferMemory;
+void* uniformBufferMapped = nullptr;
+
 //synchronization primitves
 static VkSemaphore imageAvailableSemaphore;
 static VkSemaphore renderFinishedSemaphore;
 static VkFence inFlightFence;
+
+static VkDescriptorPool descriptorPool;
+static VkDescriptorSet descriptorSet;
 
 // layers we want
 static const char* const validationLayers[] = {
@@ -125,6 +138,9 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
     {
         std::cout << std::format("validation layer: {}", pCallbackData->pMessage) << std::endl;
+#ifdef NDEBUG
+        __debugbreak();
+#endif
     }
 
     return VK_FALSE;
@@ -732,8 +748,8 @@ void createGraphicsPipeline() {
     // here is were you declare uniforms
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 0,    // the rest are optional
-        .pSetLayouts = nullptr,
+        .setLayoutCount = 1,    // the rest are optional
+        .pSetLayouts = &descriptorSetLayout,
         .pushConstantRangeCount = 0,
         .pPushConstantRanges = nullptr
     };
@@ -903,6 +919,7 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
     };
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
     vkCmdDraw(commandBuffer, ARRAYSIZE(vertices), 1, 0, 0);
 
     vkCmdEndRenderPass(commandBuffer);
@@ -942,7 +959,111 @@ void recreateSwapChain(VkApp* app, const QueueFamilyIndices& indices) {
 }
 
 static QueueFamilyIndices global_indices;
-static VkApp* global_app = nullptr;;
+static VkApp* global_app = nullptr;
+
+// for uniform buffers
+void createDescriptorSetLayout() {
+    VkDescriptorSetLayoutBinding uboLayoutBinding{
+        .binding = 0,   // see vertex shader
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .pImmutableSamplers = nullptr       // used for image samplers
+    };
+
+    
+    VkDescriptorSetLayoutCreateInfo layoutInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = 1,
+        .pBindings = &uboLayoutBinding
+    };
+
+    // create the descriptor set
+    VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout));
+}
+
+// some of this is duplicated from the Vertex Buffer creation process
+void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
+    VkBufferCreateInfo bufferInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = size,
+        .usage = usage,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VK_CHECK(vkCreateBuffer(device, &bufferInfo, nullptr, &buffer));
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = memRequirements.size,
+        .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties)
+    };
+
+
+    VK_CHECK(vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory))
+
+    vkBindBufferMemory(device, buffer, bufferMemory, 0);
+}
+
+void createUniformBuffers() {
+    constexpr VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+    createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffer, uniformBufferMemory);
+    vkMapMemory(device, uniformBufferMemory, 0, bufferSize, 0, &uniformBufferMapped);
+}
+
+void updateUniformBuffer() {
+    // note that small data should be transmitted via pushconstants rather than a buffer
+    ubo.time++;
+    memcpy(uniformBufferMapped, &ubo, sizeof(ubo));
+}
+
+void createDescriptorPool() {
+    // for constant (uniform) buffers
+    VkDescriptorPoolSize poolSize{
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+    };
+    VkDescriptorPoolCreateInfo poolInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .maxSets = 1,       // these 1's are replaced with the maximum number of frames in flight
+        .poolSizeCount = 1,
+        .pPoolSizes = &poolSize,
+    };
+    VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool));
+}
+
+
+void createDescriptorSets() {
+    VkDescriptorSetAllocateInfo allocInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = descriptorPool,
+        .descriptorSetCount = 1,    // if multiple frames are in flight, set this to the max number of frames
+        .pSetLayouts = &descriptorSetLayout, // for multiple, supply a pointer with N identical copies of descriptorSetLayout
+    };
+    VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
+
+    VkDescriptorBufferInfo bufferInfo{
+        .buffer = uniformBuffer,
+        .offset = 0,
+        .range = sizeof(UniformBufferObject)
+    };
+
+    VkWriteDescriptorSet descriptorWrite{
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = descriptorSet,
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .pImageInfo = nullptr,  // optional
+        .pBufferInfo = &bufferInfo,
+        .pTexelBufferView = nullptr
+    };
+    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+}
 
 void VkApp::inithook() {
     global_app = this;
@@ -956,12 +1077,16 @@ void VkApp::inithook() {
 
     // render pass
     createRenderPass();
+    createDescriptorSetLayout();
     createGraphicsPipeline();
     createFramebuffers();
 
     // command buffers
     createCommandPool(indices);
     createVertexBuffer();
+    createUniformBuffers();
+    createDescriptorPool();
+    createDescriptorSets();
     createCommandBuffer();
     createSyncObjects();
 }
@@ -985,6 +1110,8 @@ void drawFrame() {
 
     // reset the fence, we are now submitting work
     vkResetFences(device, 1, &inFlightFence); 
+
+    updateUniformBuffer();
 
     // populate the command buffer
     vkResetCommandBuffer(commandBuffer, 0);
@@ -1037,12 +1164,15 @@ void VkApp::cleanuphook() {
 
     cleanupSwapChain();
 
+    // vertex buffer
+    vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
     vkDestroyBuffer(device, vertexBuffer, nullptr);
     vkFreeMemory(device, vertexBufferMemory, nullptr);
 
-    if constexpr (enableValidationLayers) {
-        DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
-    }
+    // uniform buffer
+    vkDestroyBuffer(device, uniformBuffer, nullptr);
+    vkFreeMemory(device, uniformBufferMemory, nullptr);
+    vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
     vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
     vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
@@ -1066,6 +1196,10 @@ void VkApp::cleanuphook() {
     vkDestroyDevice(device,nullptr);
     vkDestroySurfaceKHR(instance,surface,nullptr);
     vkDestroyInstance(instance, nullptr);
+
+    if constexpr (enableValidationLayers) {
+        DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+    }
 }
 
 #endif
