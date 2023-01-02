@@ -646,7 +646,7 @@ void createGraphicsPipeline() {
     // at draw time, the values must be specified (required)
     std::vector<VkDynamicState> dynamicStates = {
         VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_SCISSOR
+        VK_DYNAMIC_STATE_SCISSOR,
     };
     VkPipelineDynamicStateCreateInfo dynamicState{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
@@ -793,9 +793,7 @@ void createFramebuffers(){
             .height = swapChainExtent.height,
             .layers = 1
         };
-        if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create framebuffer!");
-        }
+        VK_CHECK(vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]));
     }
 }
 
@@ -1067,27 +1065,27 @@ void createDescriptorSets() {
 
 void VkApp::inithook() {
     global_app = this;
-    createInstance();
-    setupDebugMessenger();
-    createSurface(this);
-    auto indices = selectPhysicalAndLogicalDevice();
-    setupSwapChain(this,indices);
-    createSwapChainImageViews();
+    createInstance();                                               // done
+    setupDebugMessenger();                                          // done
+    createSurface(this);                                        // done
+    auto indices = selectPhysicalAndLogicalDevice(); // done
+    setupSwapChain(this,indices);                               // done
+    createSwapChainImageViews();                                    // done
     global_indices = indices;
 
     // render pass
-    createRenderPass();
-    createDescriptorSetLayout();
-    createGraphicsPipeline();
-    createFramebuffers();
+    createRenderPass();                                             // done
+    createDescriptorSetLayout();    // uniform buffer               // done
+    createGraphicsPipeline();                                       // done
+    createFramebuffers();                                           // done, but RHI needs to call this before drawing
 
     // command buffers
-    createCommandPool(indices);
-    createVertexBuffer();
-    createUniformBuffers();
-    createDescriptorPool();
-    createDescriptorSets();
-    createCommandBuffer();
+    createCommandPool(indices);                     // done
+    createVertexBuffer();                                           // done
+    createUniformBuffers();                                         // done
+    createDescriptorPool();                                         // done
+    createDescriptorSets();                                         // done
+    createCommandBuffer();                                          // done
     createSyncObjects();
 }
 
@@ -1101,7 +1099,7 @@ void drawFrame() {
 
     // if the image is out of date, then we recreate the chains
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        recreateSwapChain(global_app,global_indices);
+        recreateSwapChain(global_app,global_indices);       // done
         return;
     }
     else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
@@ -1111,10 +1109,10 @@ void drawFrame() {
     // reset the fence, we are now submitting work
     vkResetFences(device, 1, &inFlightFence); 
 
-    updateUniformBuffer();
+    updateUniformBuffer();      // done
 
     // populate the command buffer
-    vkResetCommandBuffer(commandBuffer, 0);
+    vkResetCommandBuffer(commandBuffer, 0);             // done
     recordCommandBuffer(commandBuffer, imageIndex);
 
     // prepare to submit the command buffer 

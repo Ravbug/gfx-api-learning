@@ -7,7 +7,7 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<AppBase> app;
 
-#if DX12_AVAILABLE
+#if !DX12_AVAILABLE
     app = std::make_unique<DxApp>();
 #elif VK_AVAILABLE
     app = std::make_unique<VkApp>();
