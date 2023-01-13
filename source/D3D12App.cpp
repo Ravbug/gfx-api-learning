@@ -53,7 +53,7 @@ ComPtr<ID3D12GraphicsCommandList> g_CommandList;
 ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap;		// contains render target views
 UINT g_RTVDescriptorSize;			// vendor-specific
 UINT g_CurrentBackBufferIndex;		// what texture we are on -- may not be sequential on every vendor
-
+aps
 // Synchronization objects
 ComPtr<ID3D12Fence> g_Fence;
 uint64_t g_FenceValue = 0;
@@ -198,12 +198,6 @@ bool LoadContent() {
     ComPtr<ID3DBlob> fragShaderblob;
     DX_CHECK(D3DReadFileToBlob(L"dx_fs.cso", &fragShaderblob));
 
-    // Create the vertex input layout
-    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    };
-
     // Create a root signature.
     // version 1.1 is preferred, but we fall back to 1.0 if it is not available
     D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
@@ -252,6 +246,12 @@ bool LoadContent() {
         CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS RTVFormats;
     } pipelineStateStream;
 
+    // Create the vertex input layout
+    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
     // describe the pipeline state object
     pipelineStateStream.pRootSignature = m_RootSignature.Get();
     pipelineStateStream.InputLayout = { inputLayout, _countof(inputLayout) };
@@ -276,7 +276,7 @@ bool LoadContent() {
 
     // Resize/Create the depth buffer.
     ResizeDepthBuffer(WIDTH, HEIGHT);
-
+    
     return true;
 }
 
@@ -645,24 +645,24 @@ void Render()
     // Clear the render targets.
     {
         TransitionResource(commandList, backBuffer,
-            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);      // done
 
-        FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };
+        FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };        // done
 
-        ClearRTV(commandList, rtv, clearColor);
+        ClearRTV(commandList, rtv, clearColor);         // done
         ClearDepth(commandList, dsv);
     }
 
     // prepare pipeline for rendering
-    commandList->SetPipelineState(m_PipelineState.Get());
-    commandList->SetGraphicsRootSignature(m_RootSignature.Get());
+    commandList->SetPipelineState(m_PipelineState.Get());       // done
+    commandList->SetGraphicsRootSignature(m_RootSignature.Get());   // done
 
-    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    commandList->IASetVertexBuffers(0, 1, &m_VertexBufferView);
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);   // done
+    commandList->IASetVertexBuffers(0, 1, &m_VertexBufferView);     // done
     commandList->IASetIndexBuffer(&m_IndexBufferView);
 
-    commandList->RSSetViewports(1, &m_Viewport);
-    commandList->RSSetScissorRects(1, &m_ScissorRect);
+    commandList->RSSetViewports(1, &m_Viewport);            // done
+    commandList->RSSetScissorRects(1, &m_ScissorRect);      // done
 
     commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
 
@@ -672,16 +672,16 @@ void Render()
     commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &mvpMatrix, 0);
 
     // draw call
-    commandList->DrawIndexedInstanced(_countof(g_Indicies), 1, 0, 0, 0);
+    commandList->DrawIndexedInstanced(_countof(g_Indicies), 1, 0, 0, 0);        //done
 
     // Present
     {
         TransitionResource(commandList, backBuffer,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);      //done
 
-        m_FenceValues[currentBackBufferIndex] = commandQueue->ExecuteCommandList(commandList);
+        m_FenceValues[currentBackBufferIndex] = commandQueue->ExecuteCommandList(commandList);  //done
 
-        currentBackBufferIndex = Present();
+        currentBackBufferIndex = Present(); 
 
         commandQueue->WaitForFenceValue(m_FenceValues[currentBackBufferIndex]);
     }
